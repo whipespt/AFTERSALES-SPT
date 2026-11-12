@@ -132,7 +132,7 @@
       if (pr.role === 'MENUNGGU') return Cloud.signOut().then(function () { showLogin('Akun Anda belum diaktifkan. Hubungi admin agar peran akun Anda diatur.'); });
       return call('init').then(function (meta) {
         S.meta = meta; S.user = { role: pr.role, nama: pr.nama, email: pr.email };
-        S.year = meta.currentYear; S.month = meta.currentMonth; S.repMonth = meta.currentMonth; S.page = 'dashboard';
+        S.year = meta.currentYear; S.month = meta.currentMonth; S.repMonth = meta.currentMonth; S.page = 'dashboard'; S.setTab = 'target';
         S.quotes = []; S.cust = null; S.fu = null; S.ar = null; S.pf = 0;
         show('app');
         var ys = $('#yearSel');
@@ -155,7 +155,7 @@
   }
 
   function doLogout() {
-    Cloud.signOut().then(function () { S.user = null; $('#view').innerHTML = ''; showLogin(''); }, function () { S.user = null; showLogin(''); });
+    Cloud.signOut().then(function () { S.user = null; $('#view').innerHTML = ''; if ($('#login').hidden) showLogin(''); }, function () { S.user = null; if ($('#login').hidden) showLogin(''); });
   }
   function sessionExpired() {
     if (!S.user) return;
@@ -189,7 +189,6 @@
     var p = [['dashboard', 'Dashboard'], ['target', 'Target & Pencapaian'], ['quotation', 'Quotation'], ['customer', 'Customer'], ['crm', 'CRM Follow Up'], ['ar', 'AR Invoice'], ['laporan', 'Laporan Bulanan']];
     if (canEdit()) p.push(['dataawal', 'Data Awal']);
     if (canPlan()) p.push(['pengaturan', isAdmin() ? 'Pengaturan' : 'Target']);
-    if (isAdmin()) { p.push(['pengguna', 'Pengguna']); p.push(['backup', 'Backup']); }
     return p;
   }
   function buildTabs() {
@@ -200,7 +199,7 @@
     killCharts();
     var token = ++S.rt, v = $('#view');
     v.innerHTML = '<div class="empty"><div class="spinner" style="margin:0 auto 10px"></div>Memuat…</div>';
-    var fn = { dashboard: pDashboard, target: pTarget, quotation: pQuotation, customer: pCustomer, crm: pCrm, ar: pAR, laporan: pLaporan, dataawal: pDataAwal, pengguna: pPengguna, pengaturan: pPengaturan, backup: pBackup }[S.page];
+    var fn = { dashboard: pDashboard, target: pTarget, quotation: pQuotation, customer: pCustomer, crm: pCrm, ar: pAR, laporan: pLaporan, dataawal: pDataAwal, pengaturan: pSettings, backup: pBackup }[S.page];
     fn(token).then(prefetch).catch(function (e) { if (token === S.rt) v.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; });
   }
   function stale(token) { return token !== S.rt; }
@@ -1688,10 +1687,26 @@
           bt.disabled = true;
           Cloud.updateUser(tr.dataset.uid, rl.value, nm.value).then(function () {
             o = { nama: nm.value.trim(), role: rl.value }; nm.value = o.nama; toast('Peran ' + (nm.value) + ' disimpan.');
-            if (self) { S.user.role = rl.value; S.user.nama = o.nama; updateChrome(); buildTabs(); if (!canEdit() && !isAdmin()) { S.page = 'dashboard'; } render(); }
+            if (self) { S.user.role = rl.value; S.user.nama = o.nama; updateChrome(); S.setTab = 'target'; if (!canPlan()) S.page = 'dashboard'; buildTabs(); render(); }
           }).catch(function (e) { toast(e.message, true); dirty(); });
         });
       });
+    });
+  }
+
+  /* ---------- Pengaturan: Target (Admin & Branch Manager) | Pengguna | Backup & Impor (khusus Admin) ---------- */
+  function pSettings(token) {
+    var tabs = [['target', 'Target']];
+    if (isAdmin()) tabs.push(['pengguna', 'Pengguna & peran'], ['backup', 'Backup & Impor']);
+    var cur = tabs.some(function (t) { return t[0] === S.setTab; }) ? S.setTab : 'target';
+    var fn = { target: pPengaturan, pengguna: pPengguna, backup: pBackup }[cur];
+    return fn(token).then(function () {
+      if (stale(token) || tabs.length < 2) return;
+      var bar = '<div class="chips set-tabs" role="tablist" style="margin-bottom:14px">' + tabs.map(function (t) {
+        return '<button class="chip" role="tab" data-set="' + t[0] + '" aria-pressed="' + (t[0] === cur) + '">' + t[1] + '</button>';
+      }).join('') + '</div>';
+      $('#view').insertAdjacentHTML('afterbegin', bar);
+      $$('[data-set]', $('#view')).forEach(function (b) { b.addEventListener('click', function () { if (b.dataset.set === cur) return; S.setTab = b.dataset.set; render(); }); });
     });
   }
 
