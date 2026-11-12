@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Mitra IPE Sampit - After Sales Tracker</title>
+  <link rel="icon" href="img/logo.png" type="image/png">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div id="boot" class="boot"><div class="spinner"></div><p id="bootMsg">Memuat…</p></div>
+
+  <div id="denied" class="denied" hidden>
+    <div class="denied-card">
+      <img class="brand-logo" src="img/logo.png" alt="" width="44" height="44" style="margin-bottom:12px">
+      <h1>Tidak dapat melanjutkan</h1>
+      <p id="deniedMsg"></p>
+      <p style="margin-top:14px"><button class="btn" id="deniedOut" type="button" hidden>Keluar</button></p>
+    </div>
+  </div>
+
+  <div id="login" class="denied" hidden>
+    <form class="denied-card login-card" id="loginForm" autocomplete="on" novalidate>
+      <img class="brand-logo" src="img/logo.png" alt="Logo Mitra IPE Sampit" width="56" height="56" style="margin-bottom:10px">
+      <h1>Mitra IPE Sampit</h1>
+      <p class="muted" style="margin-bottom:14px">After Sales Tracker — silakan masuk</p>
+      <div id="loginErr"></div>
+      <div class="fld"><label for="lgEmail">Email</label><input type="email" id="lgEmail" autocomplete="username" inputmode="email" required></div>
+      <div class="fld"><label for="lgPass">Password</label><input type="password" id="lgPass" autocomplete="current-password" required></div>
+      <button class="btn primary" id="lgGo" type="submit" style="width:100%;justify-content:center">Masuk</button>
+      <p style="margin-top:12px"><button class="linkbtn" id="lgForgot" type="button">Lupa password?</button></p>
+    </form>
+  </div>
+
+  <div id="app" hidden>
+    <header class="topbar">
+      <div class="brand">
+        <img class="brand-logo" src="img/logo.png" alt="Logo Mitra IPE Sampit" width="40" height="40">
+        <div>
+          <div class="brand-name">Mitra IPE Sampit</div>
+          <div class="brand-sub">After Sales Tracker · quotation &amp; target penjualan</div>
+        </div>
+      </div>
+      <div class="top-right">
+        <label class="sel"><span>Tahun</span><select id="yearSel"></select></label>
+        <button class="btn sm" id="btnRefresh" type="button" title="Muat ulang data dari server" aria-label="Muat ulang data">↻</button>
+        <div class="user-chip"><span id="userName"></span><b id="userRole" class="role-badge"></b><button class="btn sm" id="btnPwd" type="button">Ubah password</button><button class="btn sm" id="btnAuth" type="button">Keluar</button></div>
+      </div>
+    </header>
+    <nav class="tabs" id="tabs" role="tablist"></nav>
+    <main id="view" class="view"></main>
+  </div>
+
+  <div id="modalRoot"></div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/server.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
