@@ -153,9 +153,9 @@ var Cloud = (function () {
   function err_(e, pre) { var m = e && e.message ? e.message : String(e || ''); return new Error((pre ? pre + ' ' : '') + m); }
 
   function init(cfg, createClient) {
-    if (!cfg || !cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY || /ISI_/.test(cfg.SUPABASE_URL + cfg.SUPABASE_ANON_KEY)) {
-      throw new Error('Konfigurasi Supabase belum diisi. Buka js/config.js lalu isi SUPABASE_URL dan SUPABASE_ANON_KEY (lihat README).');
-    }
+    if (!cfg) throw new Error('Berkas js/config.js tidak terbaca (window.APP_CONFIG kosong). Pastikan js/config.js ada di GitHub dan tidak ada salah ketik (tanda kutip, koma, kurung). Tekan Ctrl+F5 setelah memperbaikinya.');
+    if (!cfg.SUPABASE_URL || /^ISI_/.test(String(cfg.SUPABASE_URL).trim())) throw new Error('SUPABASE_URL di js/config.js di GitHub masih kosong / berisi tulisan ISI_… (bukan alamat proyek). Buka https://ALAMAT-WEBSITE-ANDA/js/config.js di browser untuk melihat isi yang sebenarnya dipakai.');
+    if (!cfg.SUPABASE_ANON_KEY || /^ISI_/.test(String(cfg.SUPABASE_ANON_KEY).trim())) throw new Error('SUPABASE_ANON_KEY di js/config.js di GitHub masih kosong / berisi tulisan ISI_…. Buka https://ALAMAT-WEBSITE-ANDA/js/config.js di browser untuk melihat isi yang sebenarnya dipakai.');
     var url = String(cfg.SUPABASE_URL).trim(), key = String(cfg.SUPABASE_ANON_KEY).trim();
     try { var u = new URL(url); url = u.origin; } catch (e) { throw new Error('SUPABASE_URL di js/config.js bukan alamat yang valid. Contoh yang benar: https://abcdefgh.supabase.co'); }
     if (/(^|\.)supabase\.com$/i.test(new URL(url).hostname)) throw new Error('SUPABASE_URL salah: itu alamat dashboard. Pakai "Project URL" dari Project Settings → API, bentuknya https://xxxxxxxx.supabase.co');
