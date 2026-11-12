@@ -5,7 +5,7 @@ Website statis (tanpa server sendiri) untuk memantau quotation, target, customer
 - **Hosting:** GitHub Pages (gratis).
 - **Database, login, dan penyimpanan foto:** Supabase (gratis).
 - **Login:** setiap pengguna punya email + password sendiri. **Semua wajib login** — tanpa login tidak ada data yang terlihat.
-- **Peran:** `ADMIN` (input dan ubah data) dan `VIEWER` (hanya melihat). Peran diatur di dashboard Supabase.
+- **Peran:** `ADMIN` (akses penuh), `BRANCH_MANAGER` (melihat semua, mengubah target dan PIC), `SALES` (mengubah semua data operasional kecuali target, PIC, dan pengaturan), `VIEWER` (hanya melihat). Admin mengatur peran langsung di web lewat menu **Pengguna**.
 - **Foto bukti quotation/PO:** disimpan di Supabase Storage (bucket **privat**), dibuka lewat tautan sementara.
 
 Isi folder yang diunggah ke GitHub:
@@ -34,7 +34,7 @@ BACKUP_FORMAT.md    penjelasan format file backup
 1. Menu **SQL Editor → New query**.
 2. Buka berkas `supabase/schema.sql`, salin **seluruh isinya**, tempel, lalu klik **Run**. Hasil harus "Success". Aman dijalankan ulang.
 
-Skrip ini membuat tabel data, tabel `profiles` (peran pengguna), aturan **Row Level Security** (semua pengguna aktif boleh membaca, hanya ADMIN yang boleh menulis), dan bucket privat `bukti`.
+Skrip ini membuat tabel data, tabel `profiles` (peran pengguna), aturan **Row Level Security** (semua pengguna aktif boleh membaca, penulisan sesuai peran), dan bucket privat `bukti`.
 
 ### 3. Atur login
 1. **Authentication → Sign In / Providers → Email**:
@@ -46,12 +46,20 @@ Skrip ini membuat tabel data, tabel `profiles` (peran pengguna), aturan **Row Le
 ### 4. Buat akun pengguna
 1. **Authentication → Users → Add user → Create new user**: isi email dan password, centang **Auto Confirm User**.
 2. **Pengguna pertama yang dibuat otomatis menjadi ADMIN.** Buat akun Anda sendiri lebih dulu.
-3. Untuk pengguna lain: buat dengan cara yang sama, lalu buka **Table Editor → `profiles`** dan ubah kolom `role`:
-   - `VIEWER` = hanya melihat
-   - `ADMIN` = boleh input dan ubah
-   - `MENUNGGU` (bawaan akun baru) = **belum bisa melihat apa pun** sampai diubah
-   - kolom `nama` = nama yang tampil di aplikasi dan tercatat sebagai pengubah data
-4. Mencabut akses: ubah `role` kembali ke `MENUNGGU`, atau hapus pengguna di **Authentication → Users**.
+3. Untuk pengguna lain: buat akunnya dengan cara yang sama di Supabase, lalu **atur peran di website**: login sebagai Admin → menu **Pengguna** → pilih peran dan nama tampil → **Simpan**. Akun baru berstatus `MENUNGGU` (belum bisa melihat apa pun) sampai peran diatur.
+
+| Peran | Melihat data | Quotation, customer, follow up, AR, data awal, foto | Target dan PIC | Pengguna, backup, impor |
+|---|---|---|---|---|
+| Admin | ✅ | ✅ | ✅ | ✅ |
+| Branch Manager | ✅ | – | ✅ | – |
+| Sales | ✅ | ✅ | – | – |
+| Viewer | ✅ | – | – | – |
+| Menunggu | – | – | – | – |
+
+4. Mencabut akses: ubah peran menjadi **Menunggu** di menu Pengguna, atau hapus pengguna di **Authentication → Users**. Sistem menolak menurunkan atau menghapus Admin terakhir.
+5. Menambah pengguna tetap dilakukan di dashboard Supabase (website tidak boleh menyimpan kunci rahasia untuk membuat akun). Perubahan peran berlaku setelah pengguna masuk kembali.
+
+> **Sudah memasang versi sebelumnya?** Jalankan ulang seluruh `supabase/schema.sql` di SQL Editor (aman, data tidak berubah). Skrip ini menambah peran baru dan aturan keamanannya; akun `VIEWER` dan `ADMIN` yang ada tetap seperti semula.
 
 ### 5. Isi `js/config.js`
 Di Supabase buka **Project Settings → API**, lalu salin:
@@ -82,7 +90,7 @@ Repository gratis di GitHub Pages harus *public*; itu aman karena isinya hanya k
 - **Perhitungan berjalan di browser.** Aplikasi memuat tabel dari Supabase, menghitung dashboard di perangkat Anda, dan menulis perubahan kembali. Untuk data sebesar ini (ribuan baris) terasa cepat. Sebelum setiap penyimpanan, data terbaru dimuat ulang, sehingga dua admin yang bekerja bergantian tidak saling menimpa baris yang berbeda. Jika dua admin mengubah **baris yang sama** pada saat yang sama, yang menyimpan terakhir yang menang. Tombol **↻** di pojok kanan atas memuat ulang data.
 - **Backup:** unduh file backup secara berkala (mis. mingguan) dari menu **Backup** dan simpan di luar Supabase. Proyek Supabase gratis **dijeda otomatis jika tidak dipakai ±1 minggu**; buka dashboard Supabase dan klik *Restore* bila itu terjadi (data tidak hilang).
 - **Ganti password:** tombol **Ubah password** di pojok kanan atas. **Lupa password:** tautan di halaman login mengirim email pengaturan ulang (pastikan Site URL sudah benar).
-- **Pengguna tidak muncul / "belum diaktifkan":** peran di tabel `profiles` masih `MENUNGGU`; ubah ke `VIEWER` atau `ADMIN`.
+- **"Belum diaktifkan":** peran akun masih `MENUNGGU`; Admin mengaturnya di menu **Pengguna**.
 - **"Konfigurasi Supabase belum diisi":** `js/config.js` masih berisi tulisan `ISI_...`.
 - **Tampilan lama setelah pembaruan:** tekan Ctrl+F5 (muat ulang tanpa cache).
 
