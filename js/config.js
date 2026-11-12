@@ -7,6 +7,6 @@
  * JANGAN PERNAH menaruh kunci "service_role" di berkas ini atau di GitHub.
  */
 window.APP_CONFIG = {
-  SUPABASE_URL: 'https://gqzdfkcsruwnomuzpdxa.supabase.co/rest/v1/',
+  SUPABASE_URL: 'https://gqzdfkcsruwnomuzpdxa.supabase.co',
   SUPABASE_ANON_KEY: 'sb_publishable_g53QmpWZpDc7Am81lEIlUw_XOOwqg7P'
 };
