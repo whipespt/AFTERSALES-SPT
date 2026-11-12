@@ -10,7 +10,10 @@
   function $(s, r) { return (r || document).querySelector(s); }
   function $$(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
-  function isAdmin() { return S.user && S.user.role === 'ADMIN'; }
+  function isAdmin() { return !!S.user && S.user.role === 'ADMIN'; }
+  function canEdit() { return !!S.user && (S.user.role === 'ADMIN' || S.user.role === 'SALES'); }            // data operasional
+  function canPlan() { return !!S.user && (S.user.role === 'ADMIN' || S.user.role === 'BRANCH_MANAGER'); }  // target & PIC
+  var ROLE_TXT = { ADMIN: 'ADMIN', BRANCH_MANAGER: 'BRANCH MANAGER', SALES: 'SALES', VIEWER: 'VIEWER' };
   function cap(s) { s = String(s).toLowerCase(); return s.charAt(0).toUpperCase() + s.slice(1); }
   function monthName(m) { return cap(S.meta.months[m - 1]); }
   var nf0 = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 });
@@ -126,7 +129,7 @@
   function enter() {
     bootMsg('Memuat data…');
     return Cloud.loadProfile().then(function (pr) {
-      if (pr.role === 'MENUNGGU') return Cloud.signOut().then(function () { showLogin('Akun Anda belum diaktifkan. Hubungi admin agar peran akun diatur (VIEWER atau ADMIN).'); });
+      if (pr.role === 'MENUNGGU') return Cloud.signOut().then(function () { showLogin('Akun Anda belum diaktifkan. Hubungi admin agar peran akun Anda diatur.'); });
       return call('init').then(function (meta) {
         S.meta = meta; S.user = { role: pr.role, nama: pr.nama, email: pr.email };
         S.year = meta.currentYear; S.month = meta.currentMonth; S.repMonth = meta.currentMonth; S.page = 'dashboard';
@@ -161,7 +164,7 @@
 
   function updateChrome() {
     $('#userName').textContent = S.user.nama || S.user.email;
-    $('#userRole').textContent = isAdmin() ? 'ADMIN' : 'VIEWER';
+    $('#userRole').textContent = ROLE_TXT[S.user.role] || S.user.role;
   }
 
   function newPasswordModal(fromRecovery) {
@@ -184,7 +187,9 @@
 
   function pages() {
     var p = [['dashboard', 'Dashboard'], ['target', 'Target & Pencapaian'], ['quotation', 'Quotation'], ['customer', 'Customer'], ['crm', 'CRM Follow Up'], ['ar', 'AR Invoice'], ['laporan', 'Laporan Bulanan']];
-    if (isAdmin()) { p.push(['dataawal', 'Data Awal']); p.push(['pengaturan', 'Pengaturan']); p.push(['backup', 'Backup']); }
+    if (canEdit()) p.push(['dataawal', 'Data Awal']);
+    if (canPlan()) p.push(['pengaturan', isAdmin() ? 'Pengaturan' : 'Target']);
+    if (isAdmin()) { p.push(['pengguna', 'Pengguna']); p.push(['backup', 'Backup']); }
     return p;
   }
   function buildTabs() {
@@ -195,7 +200,7 @@
     killCharts();
     var token = ++S.rt, v = $('#view');
     v.innerHTML = '<div class="empty"><div class="spinner" style="margin:0 auto 10px"></div>Memuat…</div>';
-    var fn = { dashboard: pDashboard, target: pTarget, quotation: pQuotation, customer: pCustomer, crm: pCrm, ar: pAR, laporan: pLaporan, dataawal: pDataAwal, pengaturan: pPengaturan, backup: pBackup }[S.page];
+    var fn = { dashboard: pDashboard, target: pTarget, quotation: pQuotation, customer: pCustomer, crm: pCrm, ar: pAR, laporan: pLaporan, dataawal: pDataAwal, pengguna: pPengguna, pengaturan: pPengaturan, backup: pBackup }[S.page];
     fn(token).then(prefetch).catch(function (e) { if (token === S.rt) v.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; });
   }
   function stale(token) { return token !== S.rt; }
@@ -350,7 +355,7 @@
         kpi('Capaian YTD (Jan–' + SHORT[S.month - 1] + ')', pct(d.ytd.ach), 'Target YTD ' + (d.ytd.target ? rp(d.ytd.target) : '<i>belum diatur</i>'), d.ytd.ach) +
         kpi('Capaian setahun ' + S.year, pct(d.full.ach), 'Target tahunan ' + (d.full.target ? rp(d.full.target) : '<i>belum diatur</i>'), d.full.ach);
       var monthOpts = S.meta.months.map(function (m, i) { return '<option value="' + (i + 1) + '"' + (i + 1 === S.month ? ' selected' : '') + '>' + cap(m) + '</option>'; }).join('');
-      $('#view').innerHTML = '<div class="page-head"><div><h2>Target &amp; pencapaian ' + S.year + '</h2><p>Capaian penjualan terhadap target per kategori, beserta persentase tercapainya.' + (isAdmin() ? ' Target diatur di menu Pengaturan.' : '') + '</p></div>' +
+      $('#view').innerHTML = '<div class="page-head"><div><h2>Target &amp; pencapaian ' + S.year + '</h2><p>Capaian penjualan terhadap target per kategori, beserta persentase tercapainya.' + (canPlan() ? ' Target diatur di menu ' + (canEdit() ? 'Pengaturan' : 'Target') + '.' : '') + '</p></div>' +
         '<label class="sel" style="color:var(--ink-2)"><span>Bulan acuan</span><select id="tgMonth" style="width:auto">' + monthOpts + '</select></label></div>' +
         '<div class="grid g3">' + cards + '</div>' +
         '<div class="card section-gap"><div class="card-pad" style="padding-bottom:6px"><h3>Capaian, target &amp; % tercapai ' + S.year + '</h3><div class="sub">Capaian penjualan, target, dan % tercapai per kategori per bulan. YTD dihitung Januari s/d ' + esc(mn) + '.</div></div>' + revenueTable(d, true) + '</div>';
@@ -402,8 +407,8 @@
       return '<button class="chip" data-status="' + c[0] + '" aria-pressed="' + (S.qf.status === c[0]) + '">' + c[1] + '<span class="c">' + (counts[c[0]] || 0) + '</span></button>';
     }).join('');
     var monthOpts = '<option value="0">Semua bulan</option>' + S.meta.months.map(function (m, i) { return '<option value="' + (i + 1) + '"' + (S.qf.month === i + 1 ? ' selected' : '') + '>' + cap(m) + '</option>'; }).join('');
-    $('#view').innerHTML = '<div class="page-head"><div><h2>Quotation ' + S.year + '</h2><p>' + (isAdmin() ? 'Input quotation per customer, lalu perbarui progresnya sampai invoice.' : 'Pantau progres quotation (hanya lihat).') + '</p></div>' +
-      (isAdmin() ? '<button class="btn primary" id="btnNew">+ Quotation baru</button>' : '') + '</div>' +
+    $('#view').innerHTML = '<div class="page-head"><div><h2>Quotation ' + S.year + '</h2><p>' + (canEdit() ? 'Input quotation per customer, lalu perbarui progresnya sampai invoice.' : 'Pantau progres quotation (hanya lihat).') + '</p></div>' +
+      (canEdit() ? '<button class="btn primary" id="btnNew">+ Quotation baru</button>' : '') + '</div>' +
       '<div class="card"><div class="card-pad toolbar row" style="justify-content:space-between"><div class="chips">' + chips + '</div>' +
       '<div class="row"><select id="qMonth" aria-label="Filter bulan">' + monthOpts + '</select><input type="text" id="qText" placeholder="Cari customer / no. quot / no. PO / catatan" value="' + esc(S.qf.text) + '"></div></div>' +
       '<div id="qTable"></div></div>';
@@ -415,7 +420,7 @@
   }
 
   function drawQuotationTable() {
-    var rows = filteredQuotes(), admin = isAdmin(), td = Date.now();
+    var rows = filteredQuotes(), admin = canEdit(), td = Date.now();
     var el = $('#qTable');
     if (!rows.length) { el.innerHTML = '<div class="empty">Belum ada quotation untuk filter ini.' + (admin ? ' Klik <b>+ Quotation baru</b> untuk menambahkan.' : '') + '</div>'; return; }
     var tot = rows.reduce(function (a, r) { a.q += r.nilai_quot; a.p += r.nilai_po; a.j += r.nilai_jual; return a; }, { q: 0, p: 0, j: 0 });
@@ -739,7 +744,7 @@
     return rows;
   }
   function drawCustomer() {
-    var d = S.cust, y = S.year, L = d.list, admin = isAdmin();
+    var d = S.cust, y = S.year, L = d.list, admin = canEdit();
     var tot = function (fn) { return L.reduce(function (a, c) { return a + fn(c); }, 0); };
     var cnt = { ALL: L.length }; ['AKTIF', 'TIDAK AKTIF', 'PROSPECT'].forEach(function (k) { cnt[k] = L.filter(function (c) { return c.aktivitas === k; }).length; });
     var buying = L.filter(function (c) { return c.inv[y] > 0; }).length;
@@ -759,7 +764,7 @@
     var groups = Object.keys(G).map(function (k) { return G[k]; });
     function picCell(o, pic) {
       if (o.g === '(Belum diatur)') return '<span class="muted">–</span>';
-      if (!admin) return pic ? esc(pic) : '<span class="muted">–</span>';
+      if (!canPlan()) return pic ? esc(pic) : '<span class="muted">–</span>';
       return '<button class="linkbtn pic-btn" data-pic="' + esc(o.g) + '" title="Klik untuk mengisi / mengubah PIC">' + (pic ? esc(pic) : '<span class="muted">+ isi PIC</span>') + '</button>';
     }
     function gTableHtml() {
@@ -813,7 +818,7 @@
     var nb = $('#btnCust'); if (nb) nb.addEventListener('click', function () { customerModal(null); });
   }
   function drawCustomerTable() {
-    var rows = custFiltered(), d = S.cust, y = S.year, admin = isAdmin(), el = $('#cTable');
+    var rows = custFiltered(), d = S.cust, y = S.year, admin = canEdit(), el = $('#cTable');
     if (!rows.length) { el.innerHTML = '<div class="empty">Tidak ada customer untuk filter ini.</div>'; return; }
     var fuN = {}; (S.fu || []).forEach(function (f) { fuN[f.customer_id] = (fuN[f.customer_id] || 0) + 1; });
     var body = rows.map(function (c, i) {
@@ -899,7 +904,7 @@
       '<div><span>Quotation ' + S.year + '</span><b>' + (c.nq ? fmt(c.nq) + ' · ' + rp(c.vq) : '–') + '</b></div><div><span>Quotation terbuka</span><b>' + (c.open ? rp(c.open) : '–') + '</b></div>' +
       '<div><span>Piutang (AR Invoice)</span><b>' + (c.piutang && c.piutang.sisa > 0 ? rp(c.piutang.sisa) + ' · ' + c.piutang.n + ' invoice' : '–') + '</b></div><div><span>Piutang terlambat</span><b>' + (c.piutang && c.piutang.telat > 0 ? rp(c.piutang.telat) + ' · terlama ' + fmt(c.piutang.maxTelat) + ' hari' : '–') + '</b></div></div>' +
       '<h3 style="font-size:13px">Invoice per tahun</h3>' + bars + '<div class="hint muted">* Periode Jan–Okt. Invoice 2026 = data awal Jan–Okt + penjualan setelah 31 Okt dari tab Quotation.</div>' + (c.catatan ? '<div class="note">' + esc(c.catatan) + '</div>' : '');
-    var foot = (isAdmin() ? '<button class="btn" id="cdEdit" style="margin-right:auto">Ubah</button>' : '') + (c.piutang && c.piutang.n ? '<button class="btn" id="cdAr">Lihat piutang</button>' : '') + '<button class="btn primary" data-close>Tutup</button>';
+    var foot = (canEdit() ? '<button class="btn" id="cdEdit" style="margin-right:auto">Ubah</button>' : '') + (c.piutang && c.piutang.n ? '<button class="btn" id="cdAr">Lihat piutang</button>' : '') + '<button class="btn primary" data-close>Tutup</button>';
     var ov = openModal({ title: c.nama, body: body, foot: foot });
     var e = $('#cdEdit', ov); if (e) e.addEventListener('click', function () { ov.close(); customerModal(c); });
     var ab = $('#cdAr', ov); if (ab) ab.addEventListener('click', function () { ov.close(); openARFor(c.id); });
@@ -994,7 +999,7 @@
   }
 
   function drawAR() {
-    var admin = isAdmin(), L = S.ar.list, s = arSum(L), f = S.af;
+    var admin = canEdit(), L = S.ar.list, s = arSum(L), f = S.af;
     var kpi = function (label, val, foot) { return '<div class="card kpi"><div class="kpi-label">' + label + '</div><div class="kpi-value">' + val + '</div><div class="kpi-foot">' + foot + '</div></div>'; };
     var asOf = ''; L.forEach(function (r) { var m = /LAPORAN AR (\d{4}-\d{2}-\d{2})/.exec(r.sumber || ''); if (m && m[1] > asOf) asOf = m[1]; });
     var kpis = '<div class="grid g4">' + kpi('Total piutang', compact(s.total), fmt(s.n) + ' invoice belum lunas') +
@@ -1054,7 +1059,7 @@
   }
 
   function drawArTable() {
-    var rows = arRows(), admin = isAdmin(), el = $('#arTable'), f = S.af;
+    var rows = arRows(), admin = canEdit(), el = $('#arTable'), f = S.af;
     if (!rows.length) { el.innerHTML = '<div class="empty">Tidak ada invoice untuk filter ini.</div>'; return; }
     var nFu = {}; (S.fu || []).forEach(function (x) { if (x.ar_id) nFu[x.ar_id] = (nFu[x.ar_id] || 0) + 1; });
     var body = rows.map(function (r) {
@@ -1080,7 +1085,7 @@
 
   /* ---------- riwayat invoice: pembayaran + catatan penagihan ---------- */
   function arHistory(id) {
-    var r = arById(id), admin = isAdmin();
+    var r = arById(id), admin = canEdit();
     var pays = S.ar.pay.filter(function (p) { return p.ar_id === id; }).sort(function (a, b) { return a.tgl < b.tgl ? 1 : a.tgl > b.tgl ? -1 : (a.dibuat < b.dibuat ? 1 : -1); });
     var notes = (S.fu || []).filter(function (x) { return x.ar_id === id; }).sort(function (a, b) { return a.tgl < b.tgl ? 1 : a.tgl > b.tgl ? -1 : (a.dibuat < b.dibuat ? 1 : -1); });
     var dl = '<div class="dl"><div><span>Customer</span><b>' + esc(r.customer) + '</b></div><div><span>Grup</span><b>' + esc(custGrup(r.customer_id) || '–') + '</b></div>' +
@@ -1316,7 +1321,7 @@
     return rows;
   }
   function drawCrm() {
-    var admin = isAdmin(), m = fuByCust(), f = S.fq;
+    var admin = canEdit(), m = fuByCust(), f = S.fq;
     var withFu = S.cust.list.filter(function (c) { return m[c.id]; }).length;
     var latestTahap = {}; S.meta.fuTahap.forEach(function (t) { latestTahap[t] = 0; });
     S.cust.list.forEach(function (c) { var h = m[c.id]; if (h) latestTahap[h[0].tahap]++; });
@@ -1370,7 +1375,7 @@
     var nb = $('#btnFu'); if (nb) nb.addEventListener('click', function () { followModal(null, null); });
   }
   function drawCrmTable() {
-    var rows = crmRows(), admin = isAdmin(), el = $('#crmTable'), f = S.fq;
+    var rows = crmRows(), admin = canEdit(), el = $('#crmTable'), f = S.fq;
     if (!rows.length) { el.innerHTML = '<div class="empty">Tidak ada customer untuk filter ini.</div>'; return; }
     var body = rows.map(function (x) {
       var l = x.last, due = l && l.next_tgl, late = due && l.next_tgl < todayStr() && l.tahap !== 'DEAL' && l.tahap !== 'TIDAK JADI';
@@ -1394,7 +1399,7 @@
   }
 
   function historyModal(cid) {
-    var c = byId(cid), h = (fuAllByCust()[cid] || []), admin = isAdmin();
+    var c = byId(cid), h = (fuAllByCust()[cid] || []), admin = canEdit();
     var items = h.length ? h.map(function (x) {
       var inv = x.ar_id && S.ar ? S.ar.list.filter(function (r) { return r.id === x.ar_id; })[0] : null;
       return '<div class="fu-item"><div class="fu-head"><b>' + fmtTgl(x.tgl) + '</b> ' + tahapPill(x.tahap) + (x.ar_id ? ' <span class="muted">invoice ' + esc(inv ? inv.doc_no : '') + '</span>' : '') + ' <span class="muted">· ' + esc(JENIS_LABEL[x.jenis] || x.jenis) + '</span>' +
@@ -1616,7 +1621,7 @@
         return '<tr><td>' + monthName(t.bulan) + '</td>' + K.map(function (k) { return '<td>' + cell('tg_' + t.bulan + '_' + k[0], t[k[0]]) + '</td>'; }).join('') + '<td class="num"><b id="tgT' + t.bulan + '"></b></td></tr>';
       }).join('');
       var fill = '<tr class="fillrow"><td><b>Isi semua bulan</b></td>' + K.map(function (k) { return '<td>' + cell('fill_' + k[0], 0) + '</td>'; }).join('') + '<td><button class="btn sm" id="tgFill" type="button">Terapkan</button></td></tr>';
-      $('#view').innerHTML = '<div class="page-head"><div><h2>Pengaturan</h2><p>Target penjualan per kategori dan per bulan.</p></div></div>' +
+      $('#view').innerHTML = '<div class="page-head"><div><h2>' + (isAdmin() ? 'Pengaturan' : 'Target') + '</h2><p>Target penjualan per kategori dan per bulan.</p></div></div>' +
         '<div class="card"><div class="card-pad" style="padding-bottom:6px"><h3>Target revenue parts &amp; service ' + S.year + '</h3><div class="sub">Dipakai untuk menghitung % tercapai per kategori dan total di Dashboard. Total target = jumlah semua kategori.</div></div>' +
         '<div class="tbl-wrap"><table class="t tg-table"><thead><tr><th>Bulan</th>' + K.map(function (k) { return '<th>' + k[1] + '</th>'; }).join('') + '<th class="num">Total</th></tr></thead><tbody>' + fill + rows + '</tbody>' +
         '<tfoot><tr><td>Total ' + S.year + '</td>' + K.map(function (k) { return '<td class="num" id="tgS_' + k[0] + '"></td>'; }).join('') + '<td class="num" id="tgS_all"></td></tr></tfoot></table></div>' +
@@ -1642,6 +1647,50 @@
         var arr = [];
         for (var m = 1; m <= 12; m++) { var o = { bulan: m }; K.forEach(function (k) { o[k[0]] = val('tg_' + m + '_' + k[0]); }); arr.push(o); }
         call('saveTargets', { year: S.year, targets: arr }).then(function () { toast('Target ' + S.year + ' disimpan.'); }).catch(function (e) { toast(e.message, true); });
+      });
+    });
+  }
+
+  /* ============================================================
+   * PENGGUNA & PERAN (khusus Admin)
+   * ============================================================ */
+  var ROLE_INFO = [
+    ['ADMIN', 'Admin', 'Akses penuh, termasuk mengatur peran, backup, dan impor data.'],
+    ['BRANCH_MANAGER', 'Branch Manager', 'Melihat seluruh operasional; mengubah target dan PIC.'],
+    ['SALES', 'Sales', 'Mengubah semua data operasional (quotation, customer, follow up, AR, data awal), kecuali target, PIC, dan pengaturan.'],
+    ['VIEWER', 'Viewer', 'Hanya melihat.'],
+    ['MENUNGGU', 'Menunggu (nonaktif)', 'Belum bisa melihat data apa pun. Dipakai untuk akun baru atau untuk mencabut akses.']
+  ];
+  function pPengguna(token) {
+    return Cloud.listUsers().then(function (users) {
+      if (stale(token)) return;
+      var me = Cloud.me() || {}, opts = function (cur) { return ROLE_INFO.map(function (r) { return '<option value="' + r[0] + '"' + (r[0] === cur ? ' selected' : '') + '>' + r[1] + '</option>'; }).join(''); };
+      var rows = users.map(function (u) {
+        var self = u.id === me.id;
+        return '<tr data-uid="' + esc(u.id) + '"><td>' + esc(u.email) + (self ? ' <span class="muted">(Anda)</span>' : '') + '</td>' +
+          '<td><input type="text" class="u-nama" maxlength="60" value="' + esc(u.nama) + '" aria-label="Nama ' + esc(u.email) + '"></td>' +
+          '<td><select class="u-role" aria-label="Peran ' + esc(u.email) + '">' + opts(u.role) + '</select></td>' +
+          '<td class="cell-actions"><button class="btn sm u-save" disabled>Simpan</button></td></tr>';
+      }).join('');
+      $('#view').innerHTML = '<div class="page-head"><div><h2>Pengguna &amp; peran</h2><p>Atur siapa boleh melakukan apa. Perubahan berlaku setelah pengguna tersebut masuk kembali.</p></div></div>' +
+        '<div class="card"><div class="tbl-wrap"><table class="t"><thead><tr><th>Email</th><th>Nama tampil</th><th>Peran</th><th></th></tr></thead><tbody>' + (rows || '<tr><td colspan="4" class="muted">Belum ada pengguna.</td></tr>') + '</tbody></table></div></div>' +
+        '<div class="grid g2 section-gap"><div class="card card-pad"><h3>Arti tiap peran</h3><ul class="notes">' + ROLE_INFO.map(function (r) { return '<li><b>' + r[1] + '</b> — ' + esc(r[2]) + '</li>'; }).join('') + '</ul></div>' +
+        '<div class="card card-pad"><h3>Menambah pengguna baru</h3><ol class="notes"><li>Buat akun di dashboard Supabase: <b>Authentication → Users → Add user</b> (centang <i>Auto Confirm User</i>).</li>' +
+        '<li>Muat ulang halaman ini; akun baru muncul dengan peran <b>Menunggu</b>.</li><li>Pilih peran dan nama tampilnya, lalu klik <b>Simpan</b>.</li></ol>' +
+        '<p class="muted" style="margin-top:8px">Akun tidak bisa dibuat dari website ini karena membutuhkan kunci rahasia Supabase yang tidak boleh ada di website.</p></div></div>';
+      $$('#view tbody tr[data-uid]').forEach(function (tr) {
+        var nm = $('.u-nama', tr), rl = $('.u-role', tr), bt = $('.u-save', tr), o = { nama: nm.value, role: rl.value };
+        function dirty() { bt.disabled = nm.value === o.nama && rl.value === o.role; }
+        nm.addEventListener('input', dirty); rl.addEventListener('change', dirty);
+        bt.addEventListener('click', function () {
+          var self = tr.dataset.uid === me.id;
+          if (self && rl.value !== 'ADMIN' && !window.confirm('Anda akan menurunkan peran Anda sendiri dan tidak bisa lagi membuka menu ini. Lanjutkan?')) return;
+          bt.disabled = true;
+          Cloud.updateUser(tr.dataset.uid, rl.value, nm.value).then(function () {
+            o = { nama: nm.value.trim(), role: rl.value }; nm.value = o.nama; toast('Peran ' + (nm.value) + ' disimpan.');
+            if (self) { S.user.role = rl.value; S.user.nama = o.nama; updateChrome(); buildTabs(); if (!canEdit() && !isAdmin()) { S.page = 'dashboard'; } render(); }
+          }).catch(function (e) { toast(e.message, true); dirty(); });
+        });
       });
     });
   }

@@ -129,6 +129,21 @@ function initData_(user) {
   };
 }
 
+/* ---------- peran & izin (cermin dari aturan RLS di supabase/schema.sql; yang mengikat tetap RLS di database) ---------- */
+var ROLES_ = ['ADMIN', 'BRANCH_MANAGER', 'SALES', 'VIEWER', 'MENUNGGU'];
+var ROLE_LABEL_ = { ADMIN: 'Admin', BRANCH_MANAGER: 'Branch Manager', SALES: 'Sales', VIEWER: 'Viewer', MENUNGGU: 'Menunggu' };
+var PLAN_ACTIONS_ = { saveTargets: 1, saveGrupPIC: 1 };                 // target & PIC: Admin + Branch Manager
+var ADMIN_ONLY_ACTIONS_ = { backupExport: 1, backupInfo: 1 };           // backup: hanya Admin
+/** Apakah peran boleh menjalankan aksi ini? (aksi baca terbuka untuk semua anggota, kecuali yang khusus Admin) */
+function can_(role, action, h) {
+  if (role === 'ADMIN') return true;
+  if (ADMIN_ONLY_ACTIONS_[action]) return false;
+  if (action === 'listRingkasan') return role === 'SALES' || role === 'BRANCH_MANAGER';
+  if (!h.admin) return role !== 'MENUNGGU';                             // aksi baca biasa
+  if (PLAN_ACTIONS_[action]) return role === 'BRANCH_MANAGER';
+  return role === 'SALES';                                              // aksi tulis operasional
+}
+
 /* ============================================================
  * CLOUD: Supabase (login, baca/tulis tabel, Storage)
  * ============================================================ */
@@ -141,7 +156,11 @@ var Cloud = (function () {
     if (!cfg || !cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY || /ISI_/.test(cfg.SUPABASE_URL + cfg.SUPABASE_ANON_KEY)) {
       throw new Error('Konfigurasi Supabase belum diisi. Buka js/config.js lalu isi SUPABASE_URL dan SUPABASE_ANON_KEY (lihat README).');
     }
-    sb = createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
+    var url = String(cfg.SUPABASE_URL).trim(), key = String(cfg.SUPABASE_ANON_KEY).trim();
+    try { var u = new URL(url); url = u.origin; } catch (e) { throw new Error('SUPABASE_URL di js/config.js bukan alamat yang valid. Contoh yang benar: https://abcdefgh.supabase.co'); }
+    if (/(^|\.)supabase\.com$/i.test(new URL(url).hostname)) throw new Error('SUPABASE_URL salah: itu alamat dashboard. Pakai "Project URL" dari Project Settings → API, bentuknya https://xxxxxxxx.supabase.co');
+    if (/^sb_secret_|service_role/i.test(key)) throw new Error('Jangan pakai kunci secret/service_role. Pakai kunci anon (public) atau publishable.');
+    sb = createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
     return sb;
   }
   function client() { if (!sb) throw new Error('Supabase belum diinisialisasi.'); return sb; }
@@ -155,10 +174,11 @@ var Cloud = (function () {
       if (r.error) throw new Error(/invalid login/i.test(r.error.message) ? 'Email atau password salah.' : /not confirmed/i.test(r.error.message) ? 'Email belum dikonfirmasi. Minta admin mengaktifkan akun ini di dashboard Supabase.' : r.error.message);
       return r.data.session;
     }, function (e) {
+      if (/invalid path/i.test(e && e.message)) throw new Error('Alamat Supabase di js/config.js salah. Isi SUPABASE_URL hanya dengan Project URL, mis. https://abcdefgh.supabase.co (tanpa /rest/v1 atau garis miring tambahan).');
       throw new Error(/failed to fetch|networkerror|load failed/i.test(e && e.message) ? 'Tidak dapat terhubung ke Supabase. Periksa koneksi internet dan isi js/config.js.' : e.message);
     });
   }
-  function signOut() { profile = null; DB_ = {}; JOURNAL_ = []; return client().auth.signOut().then(function () { }); }
+  function signOut() { profile = null; DB_ = {}; JOURNAL_ = []; STORAGE_TRASH_ = []; lastLoad = 0; return client().auth.signOut().then(function () { }); }
   function resetPassword(email) {
     email = String(email || '').trim();
     if (!email) return Promise.reject(new Error('Isi email Anda terlebih dahulu.'));
@@ -179,7 +199,7 @@ var Cloud = (function () {
         if (r.error) throw new Error('Gagal membaca profil: ' + r.error.message);
         var p = r.data;
         if (!p) throw new Error('Akun Anda belum punya profil. Hubungi admin.');
-        var role = String(p.role || '').toUpperCase(); if (role !== 'ADMIN' && role !== 'VIEWER') role = 'MENUNGGU';
+        var role = String(p.role || '').toUpperCase(); if (ROLES_.indexOf(role) < 0) role = 'MENUNGGU';
         var nama = String(p.nama || '').trim() || String(p.email || s.user.email || '').split('@')[0];
         profile = { id: p.id, email: p.email || s.user.email, nama: nama, role: role };
         return profile;
@@ -271,7 +291,7 @@ var Cloud = (function () {
     }
     var h = HANDLERS[action];
     if (!h) return Promise.reject(new Error('Aksi tidak dikenal: ' + action));
-    if (h.admin && user.role !== 'ADMIN') return Promise.reject(new Error('Hanya Admin yang dapat melakukan aksi ini.'));
+    if (!can_(user.role, action, h)) return Promise.reject(new Error('Peran Anda (' + (ROLE_LABEL_[user.role] || user.role) + ') tidak diizinkan melakukan aksi ini.'));
     var isWrite = !!h.admin && !h.ro;
     var wantLog = action === 'backupExport' && !!payload.logAktivitas;
     var need = isWrite || wantLog || !lastLoad || Date.now() - lastLoad > STALE_MS;
@@ -291,6 +311,27 @@ var Cloud = (function () {
     return p;
   }
   function refresh() { return queue = queue.then(function () { return reloadAll(); }).then(function () { }, function (e) { throw e; }); }
+
+  /* ---- manajemen pengguna (khusus Admin; RLS di database yang menegakkan) ---- */
+  function listUsers() {
+    if (!profile || profile.role !== 'ADMIN') return Promise.reject(new Error('Hanya Admin yang dapat mengelola pengguna.'));
+    return client().from('profiles').select('id,email,nama,role,created_at').order('created_at', { ascending: true }).then(function (r) {
+      if (r.error) throw new Error('Gagal membaca daftar pengguna: ' + r.error.message);
+      return r.data || [];
+    });
+  }
+  function updateUser(id, role, nama) {
+    if (!profile || profile.role !== 'ADMIN') return Promise.reject(new Error('Hanya Admin yang dapat mengelola pengguna.'));
+    if (ROLES_.indexOf(role) < 0) return Promise.reject(new Error('Peran tidak dikenal.'));
+    nama = String(nama || '').trim();
+    if (!nama) return Promise.reject(new Error('Nama tidak boleh kosong.'));
+    if (nama.length > 60) return Promise.reject(new Error('Nama maksimal 60 karakter.'));
+    return client().from('profiles').update({ role: role, nama: nama }).eq('id', id).then(function (r) {
+      if (r.error) throw new Error(/minimal harus ada satu admin/i.test(r.error.message) ? 'Minimal harus ada satu Admin. Jadikan pengguna lain Admin dulu.' : 'Gagal menyimpan: ' + r.error.message);
+      if (id === profile.id) { profile.role = role; profile.nama = nama; }
+      return true;
+    });
+  }
 
   /* ---- Storage ---- */
   function b64ToBlob_(b64, mime) {
@@ -391,7 +432,7 @@ var Cloud = (function () {
 
   return {
     init: init, client: client, getSession: getSession, signIn: signIn, signOut: signOut, resetPassword: resetPassword, updatePassword: updatePassword,
-    onAuth: onAuth, loadProfile: loadProfile, me: me, api: api, refresh: refresh, uploadBukti: uploadBukti, buktiUrl: buktiUrl, discardUpload: discardUpload,
+    onAuth: onAuth, loadProfile: loadProfile, listUsers: listUsers, updateUser: updateUser, me: me, api: api, refresh: refresh, uploadBukti: uploadBukti, buktiUrl: buktiUrl, discardUpload: discardUpload,
     previewBackup: previewBackup, importBackup: importBackup, parseBackup: parseBackup
   };
 })();
