@@ -1697,9 +1697,9 @@
   /* ---------- Pengaturan: Target (Admin & Branch Manager) | Pengguna | Backup & Impor (khusus Admin) ---------- */
   function pSettings(token) {
     var tabs = [['target', 'Target']];
-    if (isAdmin()) tabs.push(['pengguna', 'Pengguna & peran'], ['backup', 'Backup & Impor']);
+    if (isAdmin()) tabs.push(['pengguna', 'Pengguna & peran'], ['sinkron', 'Sinkron customer'], ['backup', 'Backup & Impor']);
     var cur = tabs.some(function (t) { return t[0] === S.setTab; }) ? S.setTab : 'target';
-    var fn = { target: pPengaturan, pengguna: pPengguna, backup: pBackup }[cur];
+    var fn = { target: pPengaturan, pengguna: pPengguna, sinkron: pSyncCust, backup: pBackup }[cur];
     return fn(token).then(function () {
       if (stale(token) || tabs.length < 2) return;
       var bar = '<div class="chips set-tabs" role="tablist" style="margin-bottom:14px">' + tabs.map(function (t) {
@@ -1708,6 +1708,59 @@
       $('#view').insertAdjacentHTML('afterbegin', bar);
       $$('[data-set]', $('#view')).forEach(function (b) { b.addEventListener('click', function () { if (b.dataset.set === cur) return; S.setTab = b.dataset.set; render(); }); });
     });
+  }
+
+  /* ---------- Sinkron customer dari file CSV (Nama;Grup) ---------- */
+  function pSyncCust(token) {
+    $('#view').innerHTML = '<div class="page-head"><div><h2>Sinkron customer dari CSV</h2><p>Samakan daftar customer dan grupnya dengan file CSV berkolom <b>Nama;Grup</b>. Anda melihat pratinjau dulu sebelum ada yang diubah.</p></div></div>' +
+      '<div class="card card-pad"><div class="fld"><label for="syFile">File CSV</label><input type="file" id="syFile" accept=".csv,text/csv,text/plain"></div><div id="syBox"></div></div>' +
+      '<div class="card card-pad section-gap"><h3>Aturan sinkron</h3><ul class="notes">' +
+      '<li><b>Cocok</b> dengan customer yang ada (nama sama, atau hanya beda spasi, tanda baca, atau "PT"/"CV"): grup diperbarui dan nama diseragamkan mengikuti CSV. Nama di Quotation, Follow Up, dan AR ikut diseragamkan supaya riwayat tetap terhubung.</li>' +
+      '<li><b>Belum ada</b> di database: ditambahkan sebagai customer baru (aktivitas Prospect, mesin 0).</li>' +
+      '<li><b>Tidak ada di CSV</b>: dibiarkan apa adanya (tidak dihapus, tidak diubah).</li>' +
+      '<li>PIC grup: bila grup baru belum punya PIC dan customer-nya dulu berasal dari grup yang punya PIC, PIC disalin ke grup baru.</li>' +
+      '<li>Invoice per tahun, jumlah mesin, dan catatan customer tidak berubah.</li></ul></div>';
+    var box = $('#syBox');
+    function list(title, arr, fmtRow, max) {
+      if (!arr.length) return '';
+      max = max || 300;
+      return '<details style="margin-top:8px"><summary><b>' + title + ' (' + fmt(arr.length) + ')</b></summary><div class="tbl-wrap"><table class="t dense"><tbody>' + arr.slice(0, max).map(fmtRow).join('') + '</tbody></table></div>' + (arr.length > max ? '<div class="muted">…dan ' + (arr.length - max) + ' lainnya</div>' : '') + '</details>';
+    }
+    $('#syFile').addEventListener('change', function () {
+      var f = this.files && this.files[0]; box.innerHTML = ''; if (!f) return;
+      if (f.size > 2 * 1024 * 1024) { box.innerHTML = '<div class="err">File terlalu besar untuk daftar customer (maksimal 2 MB).</div>'; return; }
+      var fr = new FileReader();
+      fr.onerror = function () { box.innerHTML = '<div class="err">File tidak dapat dibaca.</div>'; };
+      fr.onload = function () {
+        var rows = parseCustCsv_(String(fr.result));
+        if (!rows.length) { box.innerHTML = '<div class="err">Tidak ada baris customer di file ini. Pastikan kolomnya Nama;Grup.</div>'; return; }
+        box.innerHTML = '<div class="muted">Memeriksa ' + rows.length + ' baris…</div>';
+        call('previewCustSync', { rows: rows }).then(function (pv) {
+          var chg = pv.gantiGrup.length + pv.rename.length + pv.baru.length;
+          box.innerHTML = '<div class="chips" style="margin:10px 0"><span class="chip">' + fmt(pv.total) + ' baris CSV</span><span class="chip">' + fmt(pv.sama) + ' sudah sama</span><span class="chip" style="border-color:var(--accent)">' + fmt(pv.gantiGrup.length) + ' grup berubah</span><span class="chip" style="border-color:var(--accent)">' + fmt(pv.rename.length) + ' nama diseragamkan</span><span class="chip" style="border-color:var(--accent)">' + fmt(pv.baru.length) + ' customer baru</span><span class="chip">' + fmt(pv.pic.length) + ' PIC dipindah</span><span class="chip">' + fmt(pv.tidakAda) + ' tidak ada di CSV (dibiarkan)</span></div>' +
+            (pv.ambigu.length ? '<div class="err" style="margin-bottom:8px">' + pv.ambigu.length + ' nama dilewati karena cocok dengan lebih dari satu customer: ' + esc(pv.ambigu.map(function (a) { return a.nama + ' (≈ ' + a.kandidat.join(' / ') + ')'; }).join('; ')) + '. Rapikan manual di menu Customer.</div>' : '') +
+            (pv.dupCsv.length ? '<div class="note" style="margin-bottom:8px">Baris ganda di CSV diabaikan: ' + esc(pv.dupCsv.join('; ')) + '</div>' : '') +
+            (pv.tanpaGrup ? '<div class="note" style="margin-bottom:8px">' + pv.tanpaGrup + ' baris tanpa grup: grup customer-nya tidak diubah.</div>' : '') +
+            list('Grup berubah', pv.gantiGrup, function (x) { return '<tr><td>' + esc(x.nama) + '</td><td class="muted">' + esc(x.dari || '–') + '</td><td>→ <b>' + esc(x.ke) + '</b></td></tr>'; }) +
+            list('Nama diseragamkan', pv.rename, function (x) { return '<tr><td class="muted">' + esc(x.dari) + '</td><td>→ <b>' + esc(x.ke) + '</b></td></tr>'; }) +
+            list('Customer baru', pv.baru, function (x) { return '<tr><td>' + esc(x.nama) + '</td><td>' + esc(x.grup) + '</td></tr>'; }) +
+            list('PIC dipindah ke grup baru', pv.pic, function (x) { return '<tr><td>' + esc(x.grup) + '</td><td>' + esc(x.pic) + '</td><td class="muted">dari ' + esc(x.dari) + '</td></tr>'; }) +
+            (pv.tidakAda ? '<div class="muted" style="margin-top:8px">Contoh yang tidak ada di CSV: ' + esc(pv.tidakAdaContoh.join('; ')) + (pv.tidakAda > pv.tidakAdaContoh.length ? ' …' : '') + '</div>' : '') +
+            '<div id="syErr"></div><p style="margin-top:12px"><button class="btn primary" id="syGo"' + (chg || pv.pic.length ? '' : ' disabled') + '>' + (chg || pv.pic.length ? 'Terapkan perubahan' : 'Tidak ada yang perlu diubah') + '</button></p>';
+          var go = $('#syGo'); if (!go) return;
+          go.addEventListener('click', function () {
+            go.disabled = true; go.textContent = 'Menerapkan…'; $('#syErr').innerHTML = '';
+            call('applyCustSync', { rows: rows }).then(function (r) {
+              S.quotes = []; S.cust = null; S.fu = null; S.ar = null;
+              box.innerHTML = '<div class="note">Selesai: ' + fmt(r.ubah) + ' customer diperbarui, ' + fmt(r.baru) + ' ditambahkan, nama di ' + fmt(r.transaksi) + ' transaksi diseragamkan, ' + fmt(r.pic) + ' PIC dipindah.</div>';
+              toast('Sinkron customer selesai.');
+            }).catch(function (e) { $('#syErr').innerHTML = '<div class="err">' + esc(e.message) + '</div>'; go.disabled = false; go.textContent = 'Terapkan perubahan'; });
+          });
+        }).catch(function (e) { box.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; });
+      };
+      fr.readAsText(f);
+    });
+    return Promise.resolve();
   }
 
   boot();
