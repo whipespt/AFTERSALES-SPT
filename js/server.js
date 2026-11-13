@@ -466,7 +466,8 @@ function cekQuotAR_(p) {
   var noPo = String(p.no_ref || '').trim(), kat = String(p.kategori || '').toUpperCase(), cust = String(p.customer || '').trim();
   if (!noPo || !cust || !arQuotKat_(kat)) return { perlu: false, ada: false };
   var q = findQuotForAR_(noPo, cust);
-  return { perlu: !q, ada: !!q, status: q ? q.status : '', kategori: arQuotKat_(kat) };
+  var tg = String(p.tgl || today_());
+  return { perlu: !q, ada: !!q, status: q ? q.status : '', kategori: arQuotKat_(kat), otomatis: tg.slice(0, 7) >= today_().slice(0, 7) };
 }
 
 function saveAR_(p, user) {
@@ -520,7 +521,7 @@ function saveAR_(p, user) {
     }
     try {
       if (oldRef && (poKey_(oldRef.no_ref) !== poKey_(rec.no_ref) || arKey_(oldRef.customer) !== arKey_(rec.customer))) syncQuotFromAR_(oldRef.no_ref, oldRef.customer, user);
-      quotInfo = syncQuotFromAR_(rec.no_ref, rec.customer, user, { buat: p.quot_aksi === 'BUAT' });
+      quotInfo = syncQuotFromAR_(rec.no_ref, rec.customer, user, { buat: p.quot_aksi === 'BUAT' || rec.tgl.slice(0, 7) >= today_().slice(0, 7) }  /* bulan berjalan: otomatis */);
     } catch (e) { quotInfo = ''; /* tab Quotation tidak terbaca: invoice tetap tersimpan */ }
     var out = arEnrich_(rec, today_()); out.quot_info = quotInfo;
     return out;

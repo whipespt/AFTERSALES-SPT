@@ -1202,8 +1202,8 @@
         kategori: $('#aKat', ov).value, nilai: parseRp($('#aNilai', ov).value), target_bayar: $('#aTarget', ov).value, cabang: $('#aCab', ov).value, keterangan: $('#aKet', ov).value, target_ket: rec.target_ket || '' };
       $$('.modal-foot .btn', ov).forEach(function (b) { b.disabled = true; });
       var fail = function (e) { $('#mErr', ov).innerHTML = '<div class="err">' + esc(e.message) + '</div>'; $$('.modal-foot .btn', ov).forEach(function (b) { b.disabled = false; }); };
-      call('cekQuotAR', { no_ref: p.no_ref, customer: p.customer, kategori: p.kategori }).catch(function () { return { perlu: false }; }).then(function (c) {
-        if (c && c.perlu && window.confirm('No. PO ' + String(p.no_ref).trim() + ' belum ada di menu Quotation.\n\nBuat baris Quotation (status TERJUAL, kategori ' + c.kategori + ') otomatis dari invoice ini?\n\nOK = buat, Batal = simpan invoice saja.')) p.quot_aksi = 'BUAT';
+      call('cekQuotAR', { no_ref: p.no_ref, customer: p.customer, kategori: p.kategori, tgl: p.tgl }).catch(function () { return { perlu: false }; }).then(function (c) {
+        if (c && c.perlu && !c.otomatis && window.confirm('No. PO ' + String(p.no_ref).trim() + ' belum ada di menu Quotation, dan tanggal invoice ini bukan bulan berjalan.\n\nBuat baris Quotation (status TERJUAL, kategori ' + c.kategori + ') otomatis dari invoice ini?\n\nOK = buat, Batal = simpan invoice saja.')) p.quot_aksi = 'BUAT';
         return call('saveAR', p);
       }).then(function (r) {
         var qi = r && r.quot_info, extra = qi === 'DIBUAT' ? ' Quotation baru (TERJUAL) dibuat.' : qi === 'TERJUAL' ? ' Quotation dengan PO ini otomatis menjadi TERJUAL.' : qi === 'DIPERBARUI' ? ' Nilai penjualan di Quotation diperbarui.' : qi === 'DIKEMBALIKAN' ? ' Quotation dikembalikan ke status PO.' : qi === 'DIHAPUS' ? ' Quotation otomatis yang terkait dihapus.' : '';
