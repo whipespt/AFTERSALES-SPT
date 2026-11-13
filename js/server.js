@@ -643,6 +643,15 @@ function applyARReport_(rows, asOf, user, dry) {
       log_(user, 'IMPOR AR', asOf + ' | baru ' + plan.add.length + ', ubah ' + plan.upd.length + ', lunas otomatis ' + plan.close.length);
     }
     var short = function (a, f) { return a.slice(0, 40).map(f); };
+    if (!dry) try { // quotation yang mengikuti invoice ikut disamakan dengan hasil laporan
+      var seenPO = {}, quotesNow = readAll_('Quotation');
+      readAR_().forEach(function (r) {
+        var k = poKey_(r.no_ref) + '|' + arKey_(r.customer);
+        if (!poKey_(r.no_ref) || seenPO[k]) return; seenPO[k] = 1;
+        var q = findQuotForAR_(r.no_ref, r.customer, quotesNow);
+        if (q && String(q.catatan || '').indexOf(QINV_MARK) >= 0) syncQuotFromAR_(r.no_ref, r.customer, user);
+      });
+    } catch (e) { }
     return {
       dry: !!dry, asOf: asOf, n_laporan: clean.length, total_laporan: r2_(totalLaporan),
       n_baru: plan.add.length, n_ubah: plan.upd.length, n_lunas: plan.close.length, n_sama: plan.same,

@@ -425,16 +425,21 @@
     var rows = filteredQuotes(), admin = canEdit(), td = Date.now();
     var el = $('#qTable');
     if (!rows.length) { el.innerHTML = '<div class="empty">Belum ada quotation untuk filter ini.' + (admin ? ' Klik <b>+ Quotation baru</b> untuk menambahkan.' : '') + '</div>'; return; }
-    var tot = rows.reduce(function (a, r) { a.q += r.nilai_quot; a.p += r.nilai_po; a.j += r.nilai_jual; return a; }, { q: 0, p: 0, j: 0 });
+    var arMap = {}, invOf = function (r) { // kolom Invoice mengikuti invoice di menu AR Invoice bila ada; kalau tidak, nilai penjualan yang tersimpan
+      if (r.status !== 'TERJUAL') return r.nilai_jual;
+      var l = arMap[r.id] || (arMap[r.id] = arOfQuote(r));
+      return l.length ? l.reduce(function (s, x) { return s + x.nilai; }, 0) : r.nilai_jual;
+    };
+    var tot = rows.reduce(function (a, r) { a.q += r.nilai_quot; a.p += r.nilai_po; a.j += invOf(r); return a; }, { q: 0, p: 0, j: 0 });
     var body = rows.map(function (r) {
       var open = r.status === 'QUOTATION' || r.status === 'CARRY OVER';
       var umur = open ? Math.max(0, Math.round((td - new Date(r.tgl).getTime()) / 86400000)) : null;
       var uc = umur > 60 ? 'bad' : umur > 30 ? 'warn' : 'none';
-      var ar = r.status === 'TERJUAL' ? arOfQuote(r) : [];
-      return '<tr><td class="num" style="text-align:left">' + esc(r.tgl) + '</td><td>' + esc(r.no_quot || '–') + (r.no_po ? '<div class="muted" style="font-size:12px">PO: ' + esc(r.no_po) + '</div>' : '') + '</td><td>' + esc(r.customer) + (r.catatan ? '<div class="muted" style="font-size:12px">' + esc(r.catatan) + '</div>' : '') + '</td>' +
+      var ar = r.status === 'TERJUAL' ? (arMap[r.id] || (arMap[r.id] = arOfQuote(r))) : [], iv = invOf(r), cat = String(r.catatan || '').replace('[mengikuti invoice AR]', '').replace(/\s+$/, '');
+      return '<tr><td class="num" style="text-align:left">' + esc(r.tgl) + '</td><td>' + esc(r.no_quot || '–') + (r.no_po ? '<div class="muted" style="font-size:12px">PO: ' + esc(r.no_po) + '</div>' : '') + '</td><td>' + esc(r.customer) + (cat ? '<div class="muted" style="font-size:12px">' + esc(cat) + '</div>' : '') + '</td>' +
         '<td><span class="kat">' + esc(r.kategori) + '</span></td><td class="num">' + fmt(r.nilai_quot) + '</td><td>' + stBadge(r.status) + arBadge(ar) + '</td><td>' + buktiCell(r) + '</td>' +
         '<td class="num">' + (open ? '<span class="pill ' + uc + '">' + umur + ' hari</span>' : '') + '</td>' +
-        '<td class="num">' + (r.nilai_po ? fmt(r.nilai_po) : '–') + '</td><td class="num">' + (r.nilai_jual ? fmt(r.nilai_jual) : '–') + '</td>' +
+        '<td class="num">' + (r.nilai_po ? fmt(r.nilai_po) : '–') + '</td><td class="num">' + (iv ? fmt(iv) : '–') + '</td>' +
         (admin ? '<td><div class="cell-actions">' + (r.status === 'TERJUAL' && S.ar && !ar.length ? '<button class="btn sm" data-arq="' + esc(r.id) + '" title="Catat invoice ini sebagai piutang di menu AR Invoice">+ Piutang</button>' : '') + '<button class="btn sm" data-edit="' + esc(r.id) + '">Update</button><button class="btn sm danger" data-del="' + esc(r.id) + '" aria-label="Hapus">Hapus</button></div></td>' : '') + '</tr>';
     }).join('');
     el.innerHTML = '<div class="tbl-wrap"><table class="t"><thead><tr><th>Tanggal</th><th>No. Quot</th><th>Customer</th><th>Kat.</th><th class="num">Nilai quotation</th><th>Status</th><th>Bukti</th><th class="num">Umur</th><th class="num">Nilai PO</th><th class="num">Invoice</th>' + (admin ? '<th></th>' : '') + '</tr></thead><tbody>' + body +
