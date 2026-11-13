@@ -494,6 +494,12 @@ function saveAR_(p, user) {
     var all = readAR_(), custs = readAll_('Customer');
     var dup = all.filter(function (r) { return r.doc_no === rec.doc_no && r.id !== p.id; })[0];
     if (dup) throw new Error('Invoice No. ' + rec.doc_no + ' sudah tercatat (' + dup.customer + '). Gunakan tombol Ubah pada data tersebut.');
+    var oldAR = p.id ? all.filter(function (r) { return r.id === p.id; })[0] : null;
+    var poChanged = !oldAR || poKey_(oldAR.no_ref) !== poKey_(rec.no_ref) || arKey_(oldAR.customer) !== arKey_(rec.customer);
+    if (rec.no_ref && poChanged) { // satu PO = satu invoice (data lama dari laporan SAP yang sudah ganda tidak ikut diblokir saat diubah)
+      var samePO = all.filter(function (r) { return r.id !== p.id && poKey_(r.no_ref) === poKey_(rec.no_ref) && arKey_(r.customer) === arKey_(rec.customer); })[0];
+      if (samePO) throw new Error('No. PO ' + rec.no_ref + ' sudah dipakai invoice ' + samePO.doc_no + ' (' + samePO.customer + '). Satu PO hanya boleh punya satu invoice. Cek kembali nomor PO / invoice, atau ubah invoice yang sudah ada.');
+    }
     var c = arFindCustomer_(rec.customer, custs);
     if (!c) { c = newCustomerFromAR_(rec.customer, p.grup, user); appendRow_('Customer', c); log_(user, 'TAMBAH Customer', c.nama + ' (otomatis dari AR)'); }
     rec.customer_id = c.id; rec.customer = c.nama;
