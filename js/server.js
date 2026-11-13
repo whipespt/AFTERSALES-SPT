@@ -92,6 +92,7 @@ var HANDLERS = {
   deleteCustomer: { admin: true, fn: function (p, u) { return deleteById_('Customer', p.id, u); } },
   saveTargets: { admin: true, fn: function (p, u) { return saveTargets_(p, u); } },
   listAR: { fn: function () { return listAR_(); } },
+  cekQuotAR: { admin: true, ro: true, fn: function (p) { return cekQuotAR_(p); } },
   saveAR: { admin: true, fn: function (p, u) { return saveAR_(p, u); } },
   deleteAR: { admin: true, fn: function (p, u) { return deleteAR_(p, u); } },
   payAR: { admin: true, fn: function (p, u) { return payAR_(p, u); } },
@@ -399,6 +400,75 @@ function newCustomerFromAR_(name, grup, user) {
   return { id: newId_('C'), nama: name, grup: String(grup || '').trim().toUpperCase(), aktivitas: 'AKTIF', populasi: 0, rata_unit: 0, inv_2023: 0, inv_2024: 0, inv_2025: 0, inv_2026: 0, catatan: 'Ditambahkan otomatis dari data piutang (AR)', updated_by: user.email, updated_at: now_() };
 }
 
+/* ---- Penautan invoice AR -> Quotation (lewat No. PO customer + nama customer; tanpa kolom baru) ----
+ * Penanda di catatan quotation:
+ *   QINV_MARK  = nilai penjualan quotation ini mengikuti total invoice AR (diperbarui otomatis).
+ *   QINV_AUTO  = baris quotation dibuat otomatis dari invoice (dihapus lagi bila semua invoicenya dihapus).
+ * Kategori AR -> Quotation: SPAREPART = PARTS, SERVICE = PTS. UNIT tidak masuk Quotation. */
+var QINV_MARK = '[mengikuti invoice AR]';
+var QINV_AUTO = 'Dibuat otomatis dari invoice AR';
+function poKey_(s) { return String(s || '').replace(/\s+/g, '').toUpperCase(); }
+function arQuotKat_(k) { return k === 'SPAREPART' ? 'PARTS' : k === 'SERVICE' ? 'PTS' : ''; }
+function findQuotForAR_(noPo, customer, quotes) {
+  var k = poKey_(noPo), c = arKey_(customer);
+  if (!k) return null;
+  return (quotes || readAll_('Quotation')).filter(function (q) { return poKey_(q.no_po) === k && arKey_(q.customer) === c; })[0] || null;
+}
+function invoicesForPO_(noPo, customer, ars) {
+  var k = poKey_(noPo), c = arKey_(customer);
+  if (!k) return [];
+  return (ars || readAR_()).filter(function (r) { return poKey_(r.no_ref) === k && arKey_(r.customer) === c && arQuotKat_(r.kategori); });
+}
+/** Samakan baris Quotation dengan invoice AR yang memakai No. PO yang sama. Mengembalikan 'DIBUAT' | 'TERJUAL' | 'DIPERBARUI' | 'DIHAPUS' | 'DIKEMBALIKAN' | ''. */
+function syncQuotFromAR_(noPo, customer, user, opt) {
+  if (!poKey_(noPo)) return '';
+  var quotes = readAll_('Quotation'), q = findQuotForAR_(noPo, customer, quotes), invs = invoicesForPO_(noPo, customer);
+  var created = false;
+  if (!q) {
+    if (!(opt && opt.buat) || !invs.length) return '';
+    var first = invs.slice().sort(function (a, b) { return a.tgl < b.tgl ? -1 : 1; })[0];
+    q = { id: newId_('Q'), tgl: first.tgl, no_quot: '', no_po: String(noPo).trim(), customer: first.customer, kategori: arQuotKat_(first.kategori), nilai_quot: first.nilai, status: 'TERJUAL',
+      tgl_po: first.tgl, nilai_po: first.nilai, tgl_jual: first.tgl, nilai_jual: first.nilai, catatan: QINV_AUTO + ' ' + first.doc_no + ' ' + QINV_MARK,
+      created_by: user.email, created_at: now_(), updated_by: '', updated_at: '', bukti_quot: '', bukti_po: '' };
+    appendRow_('Quotation', q); created = true;
+    q = findQuotForAR_(noPo, customer) || q; // baca ulang agar punya nomor baris
+    log_(user, 'TAMBAH Quotation', q.id + ' | ' + q.customer + ' | ' + q.nilai_quot + ' (otomatis dari invoice ' + first.doc_no + ')');
+  }
+  var managed = String(q.catatan || '').indexOf(QINV_MARK) >= 0, auto = String(q.catatan || '').indexOf(QINV_AUTO) === 0;
+  if (!invs.length) {
+    if (!managed) return '';
+    if (auto) { sheet_('Quotation').deleteRow(q._row); log_(user, 'HAPUS Quotation', q.id + ' | ' + q.customer + ' (invoice terkait dihapus)'); return 'DIHAPUS'; }
+    q.status = 'PO'; q.tgl_jual = ''; q.nilai_jual = 0; q.catatan = String(q.catatan || '').replace(QINV_MARK, '').replace(/\s+$/, '');
+    q.updated_by = user.email; q.updated_at = now_(); updateRow_('Quotation', q._row, q);
+    log_(user, 'UBAH Quotation', q.id + ' | ' + q.customer + ' | kembali ke PO (invoice terkait dihapus)');
+    return 'DIKEMBALIKAN';
+  }
+  if (!managed && q.status === 'TERJUAL') return ''; // sudah diisi manual: biarkan, jangan dihitung dua kali
+  if (q.status !== 'PO' && q.status !== 'TERJUAL') return '';
+  var total = 0, maxTgl = '', minTgl = '9999-12-31';
+  invs.forEach(function (r) { total += r.nilai; if (r.tgl > maxTgl) maxTgl = r.tgl; if (r.tgl < minTgl) minTgl = r.tgl; });
+  total = r2_(total);
+  var wasSold = q.status === 'TERJUAL';
+  if (!created && wasSold && managed && q.nilai_jual === total && q.tgl_jual === maxTgl && (!auto || (q.nilai_quot === total && q.nilai_po === total))) return '';
+  q.status = 'TERJUAL'; q.nilai_jual = total; q.tgl_jual = maxTgl;
+  if (!q.tgl_po || q.tgl_po > q.tgl_jual) q.tgl_po = q.tgl_jual;
+  if (!(q.nilai_po > 0)) q.nilai_po = total;
+  if (auto) { q.nilai_quot = total; q.nilai_po = total; q.tgl = minTgl; q.tgl_po = minTgl; }
+  if (!managed && !created) q.catatan = (String(q.catatan || '') + ' ' + QINV_MARK).replace(/^\s+/, '');
+  if (!created) { q.updated_by = user.email; q.updated_at = now_(); }
+  updateRow_('Quotation', q._row, q);
+  if (!created) log_(user, 'UBAH Quotation', q.id + ' | ' + q.customer + ' | TERJUAL dari invoice AR');
+  try { ensureCustomer_({ customer: q.customer, status: 'TERJUAL' }, user, ''); } catch (e) { }
+  return created ? 'DIBUAT' : wasSold ? 'DIPERBARUI' : 'TERJUAL';
+}
+/** Pemeriksaan sebelum simpan invoice: apakah No. PO belum ada di Quotation (perlu konfirmasi membuat baris)? */
+function cekQuotAR_(p) {
+  var noPo = String(p.no_ref || '').trim(), kat = String(p.kategori || '').toUpperCase(), cust = String(p.customer || '').trim();
+  if (!noPo || !cust || !arQuotKat_(kat)) return { perlu: false, ada: false };
+  var q = findQuotForAR_(noPo, cust);
+  return { perlu: !q, ada: !!q, status: q ? q.status : '', kategori: arQuotKat_(kat) };
+}
+
 function saveAR_(p, user) {
   var rec = {};
   rec.doc_no = String(p.doc_no || '').trim();
@@ -427,6 +497,7 @@ function saveAR_(p, user) {
     var c = arFindCustomer_(rec.customer, custs);
     if (!c) { c = newCustomerFromAR_(rec.customer, p.grup, user); appendRow_('Customer', c); log_(user, 'TAMBAH Customer', c.nama + ' (otomatis dari AR)'); }
     rec.customer_id = c.id; rec.customer = c.nama;
+    var oldRef = null, quotInfo = '';
     if (p.id) {
       var old = all.filter(function (r) { return r.id === p.id; })[0];
       if (!old) throw new Error('Data tidak ditemukan (mungkin sudah dihapus).');
@@ -435,12 +506,18 @@ function saveAR_(p, user) {
       rec.diubah_oleh = user.email; rec.diubah = now_();
       updateRow_('AR', old._row, rec);
       log_(user, 'UBAH AR', rec.doc_no + ' | ' + rec.customer);
+      oldRef = old;
     } else {
       rec.id = newId_('A'); rec.bayar = 0; rec.sumber = 'MANUAL'; rec.dibuat_oleh = user.email; rec.dibuat = now_(); rec.diubah_oleh = ''; rec.diubah = '';
       appendRow_('AR', rec);
       log_(user, 'TAMBAH AR', rec.doc_no + ' | ' + rec.customer + ' | ' + rec.nilai);
     }
-    return arEnrich_(rec, today_());
+    try {
+      if (oldRef && (poKey_(oldRef.no_ref) !== poKey_(rec.no_ref) || arKey_(oldRef.customer) !== arKey_(rec.customer))) syncQuotFromAR_(oldRef.no_ref, oldRef.customer, user);
+      quotInfo = syncQuotFromAR_(rec.no_ref, rec.customer, user, { buat: p.quot_aksi === 'BUAT' });
+    } catch (e) { quotInfo = ''; /* tab Quotation tidak terbaca: invoice tetap tersimpan */ }
+    var out = arEnrich_(rec, today_()); out.quot_info = quotInfo;
+    return out;
   });
 }
 
@@ -453,7 +530,9 @@ function deleteAR_(p, user) {
     readAll_('FollowUp').filter(function (f) { return f.ar_id === rec.id; }).map(function (f) { return f._row; }).sort(function (a, b) { return b - a; }).forEach(function (r) { sheet_('FollowUp').deleteRow(r); });
     sh.deleteRow(rec._row);
     log_(user, 'HAPUS AR', rec.doc_no + ' | ' + rec.customer);
-    return { id: rec.id };
+    var qi = '';
+    try { qi = syncQuotFromAR_(rec.no_ref, rec.customer, user); } catch (e) { }
+    return { id: rec.id, quot_info: qi };
   });
 }
 

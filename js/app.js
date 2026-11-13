@@ -372,15 +372,18 @@
     });
   }
 
-  function arOfQuote(q) { // cocokkan invoice AR dengan quotation lewat No. PO customer + nama customer
-    if (!S.ar || !q.no_po) return null;
-    var k = String(q.no_po).trim().toUpperCase(), c = arKeyJs(q.customer);
-    return S.ar.list.filter(function (r) { return String(r.no_ref || '').trim().toUpperCase() === k && arKeyJs(r.customer) === c; })[0] || null;
+  function arOfQuote(q) { // semua invoice AR yang cocok dengan quotation lewat No. PO customer + nama customer
+    if (!S.ar || !q.no_po) return [];
+    var k = String(q.no_po).replace(/\s+/g, '').toUpperCase(), c = arKeyJs(q.customer);
+    return S.ar.list.filter(function (r) { return String(r.no_ref || '').replace(/\s+/g, '').toUpperCase() === k && arKeyJs(r.customer) === c; });
   }
-  function arBadge(r) {
-    if (!r) return '';
-    return '<div style="margin-top:3px">' + (r.sisa <= 0 ? '<span class="pill good" title="Invoice ' + esc(r.doc_no) + '">Lunas</span>' :
-      '<a href="#" class="lnk" data-arlink="' + esc(r.customer_id) + '"><span class="pill ' + (r.telat > 60 ? 'bad' : r.telat > 0 ? 'warn' : 'none') + '" title="Invoice ' + esc(r.doc_no) + '">Piutang ' + compact(r.sisa) + (r.telat > 0 ? ' · telat ' + r.telat + ' hr' : '') + '</span></a>') + '</div>';
+  function arBadge(list) {
+    if (!list || !list.length) return '';
+    var sisa = 0, telat = 0, cid = list[0].customer_id, nos = list.map(function (r) { return r.doc_no; }).join(', ');
+    list.forEach(function (r) { sisa += r.sisa; if (r.sisa > 0 && r.telat > telat) telat = r.telat; });
+    return '<div style="margin-top:3px">' + (sisa <= 0 ? '<span class="pill good" title="Invoice ' + esc(nos) + '">Lunas</span>' :
+      '<a href="#" class="lnk" data-arlink="' + esc(cid) + '"><span class="pill ' + (telat > 60 ? 'bad' : telat > 0 ? 'warn' : 'none') + '" title="Invoice ' + esc(nos) + '">Piutang ' + compact(sisa) + (telat > 0 ? ' · telat ' + telat + ' hr' : '') + '</span></a>') +
+      '<div class="muted" style="font-size:12px">Inv: ' + esc(nos) + '</div></div>';
   }
   function filteredQuotes() {
     var f = S.qf, t = f.text.trim().toLowerCase();
@@ -427,12 +430,12 @@
       var open = r.status === 'QUOTATION' || r.status === 'CARRY OVER';
       var umur = open ? Math.max(0, Math.round((td - new Date(r.tgl).getTime()) / 86400000)) : null;
       var uc = umur > 60 ? 'bad' : umur > 30 ? 'warn' : 'none';
-      var ar = r.status === 'TERJUAL' ? arOfQuote(r) : null;
+      var ar = r.status === 'TERJUAL' ? arOfQuote(r) : [];
       return '<tr><td class="num" style="text-align:left">' + esc(r.tgl) + '</td><td>' + esc(r.no_quot || '–') + (r.no_po ? '<div class="muted" style="font-size:12px">PO: ' + esc(r.no_po) + '</div>' : '') + '</td><td>' + esc(r.customer) + (r.catatan ? '<div class="muted" style="font-size:12px">' + esc(r.catatan) + '</div>' : '') + '</td>' +
         '<td><span class="kat">' + esc(r.kategori) + '</span></td><td class="num">' + fmt(r.nilai_quot) + '</td><td>' + stBadge(r.status) + arBadge(ar) + '</td><td>' + buktiCell(r) + '</td>' +
         '<td class="num">' + (open ? '<span class="pill ' + uc + '">' + umur + ' hari</span>' : '') + '</td>' +
         '<td class="num">' + (r.nilai_po ? fmt(r.nilai_po) : '–') + '</td><td class="num">' + (r.nilai_jual ? fmt(r.nilai_jual) : '–') + '</td>' +
-        (admin ? '<td><div class="cell-actions">' + (r.status === 'TERJUAL' && S.ar && !ar ? '<button class="btn sm" data-arq="' + esc(r.id) + '" title="Catat invoice ini sebagai piutang di menu AR Invoice">+ Piutang</button>' : '') + '<button class="btn sm" data-edit="' + esc(r.id) + '">Update</button><button class="btn sm danger" data-del="' + esc(r.id) + '" aria-label="Hapus">Hapus</button></div></td>' : '') + '</tr>';
+        (admin ? '<td><div class="cell-actions">' + (r.status === 'TERJUAL' && S.ar && !ar.length ? '<button class="btn sm" data-arq="' + esc(r.id) + '" title="Catat invoice ini sebagai piutang di menu AR Invoice">+ Piutang</button>' : '') + '<button class="btn sm" data-edit="' + esc(r.id) + '">Update</button><button class="btn sm danger" data-del="' + esc(r.id) + '" aria-label="Hapus">Hapus</button></div></td>' : '') + '</tr>';
     }).join('');
     el.innerHTML = '<div class="tbl-wrap"><table class="t"><thead><tr><th>Tanggal</th><th>No. Quot</th><th>Customer</th><th>Kat.</th><th class="num">Nilai quotation</th><th>Status</th><th>Bukti</th><th class="num">Umur</th><th class="num">Nilai PO</th><th class="num">Invoice</th>' + (admin ? '<th></th>' : '') + '</tr></thead><tbody>' + body +
       '</tbody><tfoot><tr><td colspan="4">' + fmt(rows.length) + ' quotation</td><td class="num">' + fmt(tot.q) + '</td><td></td><td></td><td></td><td class="num">' + fmt(tot.p) + '</td><td class="num">' + fmt(tot.j) + '</td>' + (admin ? '<td></td>' : '') + '</tr></tfoot></table></div>';
@@ -1198,13 +1201,18 @@
       var p = { id: rec.id, doc_no: $('#aDoc', ov).value, no_ref: $('#aRef', ov).value, customer: $('#aCust', ov).value, grup: $('#aGrp', ov).value, tgl: $('#aTgl', ov).value, jatuh_tempo: $('#aJt', ov).value,
         kategori: $('#aKat', ov).value, nilai: parseRp($('#aNilai', ov).value), target_bayar: $('#aTarget', ov).value, cabang: $('#aCab', ov).value, keterangan: $('#aKet', ov).value, target_ket: rec.target_ket || '' };
       $$('.modal-foot .btn', ov).forEach(function (b) { b.disabled = true; });
-      call('saveAR', p).then(function () { toast('Invoice disimpan.'); ov.close(); render(); }).catch(function (e) {
-        $('#mErr', ov).innerHTML = '<div class="err">' + esc(e.message) + '</div>'; $$('.modal-foot .btn', ov).forEach(function (b) { b.disabled = false; });
-      });
+      var fail = function (e) { $('#mErr', ov).innerHTML = '<div class="err">' + esc(e.message) + '</div>'; $$('.modal-foot .btn', ov).forEach(function (b) { b.disabled = false; }); };
+      call('cekQuotAR', { no_ref: p.no_ref, customer: p.customer, kategori: p.kategori }).catch(function () { return { perlu: false }; }).then(function (c) {
+        if (c && c.perlu && window.confirm('No. PO ' + String(p.no_ref).trim() + ' belum ada di menu Quotation.\n\nBuat baris Quotation (status TERJUAL, kategori ' + c.kategori + ') otomatis dari invoice ini?\n\nOK = buat, Batal = simpan invoice saja.')) p.quot_aksi = 'BUAT';
+        return call('saveAR', p);
+      }).then(function (r) {
+        var qi = r && r.quot_info, extra = qi === 'DIBUAT' ? ' Quotation baru (TERJUAL) dibuat.' : qi === 'TERJUAL' ? ' Quotation dengan PO ini otomatis menjadi TERJUAL.' : qi === 'DIPERBARUI' ? ' Nilai penjualan di Quotation diperbarui.' : qi === 'DIKEMBALIKAN' ? ' Quotation dikembalikan ke status PO.' : qi === 'DIHAPUS' ? ' Quotation otomatis yang terkait dihapus.' : '';
+        toast('Invoice disimpan.' + extra); ov.close(); render();
+      }).catch(fail);
     });
     var del = $('#aDel', ov); if (del) del.addEventListener('click', function () {
       if (!window.confirm('Hapus invoice ' + rec.doc_no + ' beserta riwayat pembayaran dan catatan penagihannya?\nTindakan ini tidak dapat dibatalkan.')) return;
-      call('deleteAR', { id: rec.id }).then(function () { toast('Invoice dihapus.'); ov.close(); render(); }).catch(function (e) { toast(e.message, true); });
+      call('deleteAR', { id: rec.id }).then(function (r) { var qi = r && r.quot_info; toast('Invoice dihapus.' + (qi === 'DIHAPUS' ? ' Quotation otomatis yang terkait ikut dihapus.' : qi === 'DIKEMBALIKAN' ? ' Quotation dikembalikan ke status PO.' : qi === 'DIPERBARUI' ? ' Nilai penjualan di Quotation diperbarui.' : '')); ov.close(); render(); }).catch(function (e) { toast(e.message, true); });
     });
   }
 
