@@ -236,3 +236,8 @@ a.lnk{color:inherit;text-decoration:none}a.lnk:hover b{text-decoration:underline
 .login-card .fld { text-align: left; }
 .login-card .brand-logo { margin-left: auto; margin-right: auto; }
 .user-chip .btn + .btn { margin-left: 4px; }
+
+/* Header tabel tetap terlihat saat tabel panjang di-scroll: tabel dibatasi tinggi layar dan di-scroll di dalam kartunya */
+#view .tbl-wrap { max-height: calc(100vh - 190px); min-height: 0; overflow: auto; overscroll-behavior: contain; }
+@media (max-height: 560px) { #view .tbl-wrap { max-height: none; } }
+#view .t thead th { box-shadow: 0 1px 0 var(--line-strong); }
