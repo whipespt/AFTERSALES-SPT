@@ -223,6 +223,9 @@ function saveQuotation_(p, user) {
       log_(user, 'TAMBAH Quotation', rec.id + ' | ' + rec.customer + ' | ' + rec.nilai_quot);
     }
     try { ensureCustomer_(rec, user, p.grup); } catch (e) { /* tab Customer belum ada: abaikan */ }
+    try { // baris yang mengikuti invoice AR: nilai/tanggal penjualan dikembalikan ke angka invoice (sumber kebenarannya AR)
+      if (rec.status === 'TERJUAL' && rec.no_po && String(rec.catatan || '').indexOf(QINV_MARK) >= 0) syncQuotFromAR_(rec.no_po, rec.customer, user);
+    } catch (e) { }
     return rec;
   });
 }

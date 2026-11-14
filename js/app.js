@@ -426,7 +426,7 @@
     var el = $('#qTable');
     if (!rows.length) { el.innerHTML = '<div class="empty">Belum ada quotation untuk filter ini.' + (admin ? ' Klik <b>+ Quotation baru</b> untuk menambahkan.' : '') + '</div>'; return; }
     var arMap = {}, invOf = function (r) { // kolom Invoice mengikuti invoice di menu AR Invoice bila ada; kalau tidak, nilai penjualan yang tersimpan
-      if (r.status !== 'TERJUAL') return r.nilai_jual;
+      if (r.status !== 'TERJUAL' || String(r.catatan || '').indexOf('[mengikuti invoice AR]') < 0) return r.nilai_jual; // baris manual tetap memakai angkanya sendiri (sama dengan dashboard)
       var l = arMap[r.id] || (arMap[r.id] = arOfQuote(r));
       return l.length ? l.reduce(function (s, x) { return s + x.nilai; }, 0) : r.nilai_jual;
     };
